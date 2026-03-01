@@ -1,0 +1,24 @@
+{
+  "name": "projeto_estoque",
+  "version": "1.0.0",
+  "description": "Sistema desenvolvido em **Python** utilizando a biblioteca **Streamlit** para interface e **SQLite** para persistência de dados. O projeto foi estruturado para gerenciar entradas e saídas de estoque por setores, com foco em auditoria e rastreabilidade.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gustavovolpi/controle-estoque-python.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/gustavovolpi/controle-estoque-python/issues"
+  },
+  "homepage": "https://github.com/gustavovolpi/controle-estoque-python#readme",
+  "devDependencies": {
+    "cypress": "^15.11.0"
+  }
+}
