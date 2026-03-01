@@ -36,28 +36,38 @@ PROJETO_ESTOQUE/
 Clonar o repositório:
 
 # Clonar o repositório:
-git clone https://github.com/gustavovolpi/projeto-estoque.git
-cd projeto-estoque
+git clone https://github.com/gustavovolpi/controle-estoque-python.git
+cd controle-estoque-python
 
 python -m venv venv
 # Windows:
 .\venv\Scripts\activate
+
 Instalar as dependências:
-
 pip install -r requirements.txt
+npm install  # Para as dependências do Cypress
+
 Inicializar o Banco de Dados:
-Execute o script de setup para criar as tabelas necessárias e o usuário administrador padrão.
-
+Execute o script de setup para criar as tabelas e o usuário administrador.
 python utils/setup_estoque.py
-Rodar a aplicação:
 
+Rodar a aplicação:
 streamlit run app.py
 
-Foco em Qualidade (QA)
-Rastreabilidade: Cada ação no sistema gera um rastro (Causa e Efeito) no banco de dados.
+🧪 Automação de Testes (QA)
+O sistema utiliza Cypress para validar a integridade dos dados e fluxos de usuário. Os testes garantem que a normalização de strings e as regras de saldo negativo sejam respeitadas.
 
-Validação de Inputs: Normalização de textos e prevenção de saldos negativos.
+Executar testes em interface gráfica:
+npx cypress open
 
-Tratamento de Erros: Migrações automáticas de colunas e tratamento de exceções em consultas SQL
+Executar testes em modo headless (terminal):
+npx cypress run
+
+🎯 Foco em Qualidade (QA)
+Rastreabilidade: Cada ação gera um rastro único no banco de dados para auditoria.
+
+Integridade de Ambiente: Uso de caminhos absolutos (os.path) para garantir que o sistema e a automação compartilhem o mesmo banco de dados.
+
+Validação de Negócio: Prevenção de saídas sem saldo e normalização automática de inputs.
 
 Desenvolvido por Gustavo Volpi — https://www.linkedin.com/in/gustavo-volpi/

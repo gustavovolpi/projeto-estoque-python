@@ -5,16 +5,23 @@ import unicodedata
 from datetime import datetime, date, timedelta
 import time
 import io
+import os  # Adicione este import se não tiver
 
 # ==========================================================
 # 1. CONFIGURAÇÕES INICIAIS E BANCO DE DADOS
 # ==========================================
-DB = "estoque.db"
+
+# ESTA É A MUDANÇA CHAVE:
+# Pega o caminho absoluto da pasta onde o app.py está localizado
+base_dir = os.path.dirname(os.path.abspath(__file__)) 
+# Une essa pasta com o nome do arquivo, garantindo um caminho único
+DB = os.path.join(base_dir, "estoque.db") 
+
 LISTA_SETORES = ["ALMOXARIFADO", "DIRETORIA", "LIMPEZA", "PRODUCAO", "FABRICACAO", "MANUTENCAO", "ADMINISTRATIVO", "P&D", "QUALIDADE", "LOGISTICA", "ARMAZEM"]
 
 if "logado" not in st.session_state: st.session_state.logado = False
 if "form_reset_key" not in st.session_state: st.session_state.form_reset_key = 0
-if "ordem_selecionada" not in st.session_state: st.session_state.ordem_selecionada = "Nome A-Z"
+if "ordem_selecionada" not in st.session_state: st.session_state.ordem_selecionada = "Mais recentes primeiro"
 
 def q(query, params=(), fetch=False):
     with sqlite3.connect(DB) as conn:
@@ -172,8 +179,9 @@ if aba_principal == "📦 Estoque":
     busca = c_bus.text_input("🔍 Buscar por nome do item", key="f_busca_vfinal")
     f_pos = c_pos.checkbox("Somente positivo", value=False, key="f_pos_check")
 
-    op_ordem = ["Itens com alerta ativo", "Mais recentes primeiro", "Nome A-Z", "Nome Z-A", "Estoque baixo primeiro", "Estoque alto primeiro"]
-    ordem = c_ord.selectbox("Ordenar por", op_ordem, key="f_ord_vfinal")
+    op_ordem = ["Mais recentes primeiro", "Itens com alerta ativo", "Nome A-Z", "Nome Z-A", "Estoque baixo primeiro", "Estoque alto primeiro"]
+    # Garante que o selectbox use o valor da session_state definido como padrão
+    ordem = c_ord.selectbox("Ordenar por", op_ordem, index=0, key="f_ord_vfinal")
 
     # SQL base alterada para WHERE p.ativo = 1
     sql_base = """
