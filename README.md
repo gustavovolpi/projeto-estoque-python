@@ -1,4 +1,4 @@
-# 📦 Sistema de Controle de Estoque (Renovatec)
+# 📦 Controle de Estoque - Python
 
 Sistema desenvolvido em **Python** utilizando a biblioteca **Streamlit** para interface e **SQLite** para persistência de dados. O projeto foi estruturado para gerenciar entradas e saídas de estoque por setores, com foco em auditoria e rastreabilidade.
 
