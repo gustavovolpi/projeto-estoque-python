@@ -5,18 +5,11 @@ import unicodedata
 from datetime import datetime, date, timedelta
 import time
 import io
-import os  # Adicione este import se não tiver
 
 # ==========================================================
 # 1. CONFIGURAÇÕES INICIAIS E BANCO DE DADOS
 # ==========================================
-
-# ESTA É A MUDANÇA CHAVE:
-# Pega o caminho absoluto da pasta onde o app.py está localizado
-base_dir = os.path.dirname(os.path.abspath(__file__)) 
-# Une essa pasta com o nome do arquivo, garantindo um caminho único
-DB = os.path.join(base_dir, "estoque.db") 
-
+DB = "estoque.db"
 LISTA_SETORES = ["ALMOXARIFADO", "DIRETORIA", "LIMPEZA", "PRODUCAO", "FABRICACAO", "MANUTENCAO", "ADMINISTRATIVO", "P&D", "QUALIDADE", "LOGISTICA", "ARMAZEM"]
 
 if "logado" not in st.session_state: st.session_state.logado = False
@@ -45,6 +38,12 @@ try:
     q("ALTER TABLE produtos ADD COLUMN ativo INTEGER DEFAULT 1")
 except:
     pass
+
+# --- MIGRACAO DATA/HORA SAIDA ---
+try:
+    q("ALTER TABLE saídas ADD COLUMN data_hora_saida DATETIME")
+except:
+    pass    
 
 try:
     q("ALTER TABLE produtos ADD COLUMN embalagem_padrao TEXT DEFAULT 'un'")
@@ -124,6 +123,15 @@ if aba_principal == "📦 Estoque":
         responsavel = c_resp.text_input("Nome", key=f"sai_re_new_{st.session_state.form_reset_key}").upper() if resp_sel == "+ DIGITAR NOVO..." else resp_sel
         qtd_s = st.number_input("Qtd Saída", min_value=1, key=f"sai_q_{st.session_state.form_reset_key}")
 
+        # Novos campos de Data e Hora para Saída
+        st.markdown("---")
+        c_dt, c_hr = st.columns(2)
+        data_s = c_dt.date_input("Data da Saída Real", value=datetime.now(), key=f"sai_dt_{st.session_state.form_reset_key}")
+        hora_s = c_hr.time_input("Hora da Saída Real", value=datetime.now(), key=f"sai_hr_{st.session_state.form_reset_key}")
+        
+        # Combinação dos campos em um único datetime para o banco
+        dt_saida_combinada = datetime.combine(data_s, hora_s).strftime('%Y-%m-%d %H:%M:%S')
+
         if st.button("Confirmar Saída", key=f"btn_confirm_sai_{st.session_state.form_reset_key}"):
             if item_s and responsavel and qtd_s > 0:
                 n_norm_s = normalizar(item_s)
@@ -135,8 +143,11 @@ if aba_principal == "📦 Estoque":
                 else:
                     p_id_s = q("SELECT id FROM produtos WHERE nome=?", (n_norm_s,), True)[0][0]
                     q("UPDATE estoque_setores SET quantidade = quantidade - ? WHERE produto=? AND setor='ALMOXARIFADO'", (qtd_s, n_norm_s))
-                    q("INSERT INTO saídas (produto_id, quantidade, usuario, responsavel, observacao) VALUES (?, ?, ?, ?, ?)", 
-                      (p_id_s, qtd_s, st.session_state.usuario, responsavel, f"PARA: {set_dest}"))
+                    
+                    # INSERT ATUALIZADO COM A NOVA COLUNA
+                    q("""INSERT INTO saídas (produto_id, quantidade, usuario, responsavel, observacao, data_hora_saida) 
+                         VALUES (?, ?, ?, ?, ?, ?)""", 
+                      (p_id_s, qtd_s, st.session_state.usuario, responsavel, f"PARA: {set_dest}", dt_saida_combinada))
                     
                     st.success("Saída registrada!")
                     st.session_state.form_reset_key += 1
@@ -180,16 +191,20 @@ if aba_principal == "📦 Estoque":
     f_pos = c_pos.checkbox("Somente positivo", value=False, key="f_pos_check")
 
     op_ordem = ["Mais recentes primeiro", "Itens com alerta ativo", "Nome A-Z", "Nome Z-A", "Estoque baixo primeiro", "Estoque alto primeiro"]
-    # Garante que o selectbox use o valor da session_state definido como padrão
     ordem = c_ord.selectbox("Ordenar por", op_ordem, index=0, key="f_ord_vfinal")
 
     # SQL base alterada para WHERE p.ativo = 1
     sql_base = """
     SELECT p.id, p.nome, COALESCE(p.estoque_minimo, 0), 
-           COALESCE((SELECT quantidade FROM estoque_setores WHERE produto = p.nome AND setor = 'ALMOXARIFADO'), 0) as qtd,
-           (SELECT MAX(data_hora) FROM (SELECT data_hora FROM entradas_unidade WHERE produto_id = p.id UNION ALL SELECT data_hora FROM saídas WHERE produto_id = p.id)) as ultima_mov
+        COALESCE((SELECT quantidade FROM estoque_setores WHERE produto = p.nome AND setor = 'ALMOXARIFADO'), 0) as qtd,
+        (SELECT MAX(data_hora) FROM (
+            SELECT data_hora FROM entradas_unidade WHERE produto_id = p.id 
+            UNION ALL 
+            SELECT data_hora FROM saídas WHERE produto_id = p.id
+        )) as ultima_mov
     FROM produtos p
     WHERE p.ativo = 1
+    ORDER BY ultima_mov DESC, p.id DESC -- Garante o padrão no nível do Banco de Dados
     """
     dados = q(sql_base, fetch=True)
 
@@ -203,11 +218,11 @@ if aba_principal == "📦 Estoque":
             "data": u_mov if u_mov else "2000-01-01 00:00:00"
         })
 
-    # Ordenação
-    if ordem == "Itens com alerta ativo":
-        lista_f = sorted(lista_f, key=lambda x: (not x["baixo"], x["qtd"]))
-    elif ordem == "Mais recentes primeiro":
+    if ordem == "Mais recentes primeiro":
+        # Ordena pela data de movimentação e usa o ID como critério de desempate (mais novos primeiro)
         lista_f = sorted(lista_f, key=lambda x: (x["data"], x["id"]), reverse=True)
+    elif ordem == "Itens com alerta ativo":
+        lista_f = sorted(lista_f, key=lambda x: (not x["baixo"], x["qtd"]))
     elif ordem == "Nome A-Z":
         lista_f = sorted(lista_f, key=lambda x: x["nome"])
     elif ordem == "Nome Z-A":
@@ -340,7 +355,7 @@ elif aba_principal == "📜 Auditoria":
         
         apenas_com_obs = st.checkbox("Exibir apenas itens com Comentários/Ajustes")
 
-    # SQL Dinâmica que extrai edições de dentro da Observação
+    # SQL Dinâmica atualizada para incluir data_hora_saida
     sql = """
         SELECT * FROM (
             SELECT 
@@ -354,7 +369,8 @@ elif aba_principal == "📜 Auditoria":
                     WHEN e.tipo_movimentacao LIKE '%RESP: %' THEN REPLACE(SUBSTR(e.tipo_movimentacao, INSTR(e.tipo_movimentacao, 'RESP: ') + 6, INSTR(SUBSTR(e.tipo_movimentacao, INSTR(e.tipo_movimentacao, 'RESP: ') + 6), ' |') - 1), 'RESP: ', '')
                     ELSE UPPER(e.usuario) 
                 END as Responsavel,
-                e.tipo_movimentacao as Obs, e.id as mid, p.id as pid
+                e.tipo_movimentacao as Obs, e.id as mid, p.id as pid,
+                '-' as DataSaidaReal -- Valor fixo para Entradas
             FROM entradas_unidade e JOIN produtos p ON e.produto_id = p.id 
             UNION ALL 
             SELECT 
@@ -364,7 +380,8 @@ elif aba_principal == "📜 Auditoria":
                     WHEN s.observacao LIKE 'PARA: %' THEN REPLACE(SUBSTR(s.observacao, 1, INSTR(s.observacao || ' |', ' |') - 1), 'PARA: ', '')
                     ELSE '---'
                 END as Setor,
-                UPPER(COALESCE(NULLIF(s.responsavel, ''), s.usuario)) as Responsavel, s.observacao as Obs, s.id as mid, p.id as pid
+                UPPER(COALESCE(NULLIF(s.responsavel, ''), s.usuario)) as Responsavel, s.observacao as Obs, s.id as mid, p.id as pid,
+                datetime(s.data_hora_saida) as DataSaidaReal -- Valor da nova coluna
             FROM saídas s JOIN produtos p ON s.produto_id = p.id
         ) WHERE DATE(Data) BETWEEN ? AND ?
     """
@@ -386,8 +403,8 @@ elif aba_principal == "📜 Auditoria":
     
     if res_aud:
         buffer = io.BytesIO()
-        df_export = pd.DataFrame(res_aud, columns=["Data", "Operador", "Item", "Tipo", "Qtd", "Setor", "Responsavel", "Obs", "MID", "PID"])
-        df_export['Data'] = pd.to_datetime(df_export['Data']).dt.strftime('%d/%m/%Y %H:%M')
+        df_export = pd.DataFrame(res_aud, columns=["Data", "Operador", "Item", "Tipo", "Qtd", "Setor", "Responsavel", "Obs", "MID", "PID", "Data Saída Real"])
+        df_export['Data Saída Real'] = pd.to_datetime(df_export['Data Saída Real'], errors='coerce').dt.strftime('%d/%m/%Y %H:%M').fillna('-')
         
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             df_export.to_excel(writer, index=False, sheet_name='Auditoria')
@@ -407,15 +424,29 @@ elif aba_principal == "📜 Auditoria":
         
         st.markdown("""
             <div style="display: flex; font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-bottom: 10px; font-size: 13px;">
-                <div style="flex: 1.1;">Data/Hora</div><div style="flex: 0.8;">Operador</div><div style="flex: 1.5;">Produto</div>
-                <div style="flex: 0.6;">Tipo</div><div style="flex: 0.4;">Qtd</div><div style="flex: 1.1;">Setor</div>
-                <div style="flex: 1.2;">Responsável</div><div style="flex: 2.5;">Observação/Ajuste</div><div style="flex: 0.2;"></div>
+                <div style="flex: 0.7;">Data Movim.</div>
+                <div style="flex: 0.7;">Data Saída</div>
+                <div style="flex: 0.8;">Operador</div>
+                <div style="flex: 1.5;">Produto</div>
+                <div style="flex: 0.6;">Tipo</div>
+                <div style="flex: 0.4;">Qtd</div>
+                <div style="flex: 1.1;">Setor</div>
+                <div style="flex: 1.2;">Responsável</div>
+                <div style="flex: 3.5;">Obs.</div> <div style="flex: 0.2;"></div>
             </div>
         """, unsafe_allow_html=True)
 
         idx_ini = (pg_aud - 1) * itens_pg
-        for r_data, r_oper, r_item, r_tipo, r_qtd, r_setor, r_resp, r_obs, r_mid, r_pid in res_aud[idx_ini : idx_ini + itens_pg]:
+        for r_data, r_oper, r_item, r_tipo, r_qtd, r_setor, r_resp, r_obs, r_mid, r_pid, r_dt_saida in res_aud[idx_ini : idx_ini + itens_pg]:
             col_dados, col_edit = st.columns([0.97, 0.03])
+
+            if r_dt_saida is None or r_dt_saida == '-':
+                dt_saida_formatada = '-'
+            else:
+                try:
+                    dt_saida_formatada = pd.to_datetime(r_dt_saida).strftime('%d/%m %H:%M')
+                except:
+                    dt_saida_formatada = '-'
             
             # Busca a embalagem atual do produto para exibir no histórico
             res_emb = q("SELECT embalagem_padrao FROM produtos WHERE id=?", (r_pid,), True)
@@ -429,18 +460,19 @@ elif aba_principal == "📜 Auditoria":
                 obs_exibicao = r_obs
 
             setor_limpo = r_setor.split("|")[0].strip()
+            cor_obs = "#DAA520" if "AJUSTE ADMIN:" in r_obs else "#444"
 
-            # No HTML abaixo, ajustamos a flex da quantidade para 0.6 para caber o texto da embalagem
             col_dados.markdown(f"""
                 <div style="display: flex; font-size: 11px; border-bottom: 1px solid #eee; padding: 5px 0; align-items: center;">
-                    <div style="flex: 1.1;">{pd.to_datetime(r_data).strftime('%d/%m %H:%M')}</div>
+                    <div style="flex: 0.7;">{pd.to_datetime(r_data).strftime('%d/%m %H:%M')}</div>
+                    <div style="flex: 0.7; color: #4169E1;">{dt_saida_formatada}</div>
                     <div style="flex: 0.8;">{r_oper}</div>
                     <div style="flex: 1.5;"><b>{r_item}</b></div>
                     <div style="flex: 0.6; color: {'green' if r_tipo == 'ENTRADA' else 'red'};">{r_tipo}</div>
-                    <div style="flex: 0.6;"><b>{abs(int(r_qtd))} {emb_aud}</b></div>
+                    <div style="flex: 0.4;"><b>{abs(int(r_qtd))} {emb_aud}</b></div>
                     <div style="flex: 1.1;">{setor_limpo}</div>
                     <div style="flex: 1.2;">{r_resp}</div>
-                    <div style="flex: 2.3; color: #444; font-style: italic;">{obs_exibicao}</div>
+                    <div style="flex: 3.5; color: {cor_obs}; font-style: italic; font-weight: bold;">{obs_exibicao}</div>
                 </div>
             """, unsafe_allow_html=True)
             

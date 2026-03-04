@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS saídas (
     responsavel TEXT, 
     data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     tipo_movimentacao TEXT DEFAULT 'SAIDA',
+    data_hora_saida DATETIME, -- <--- ADICIONE ESTA LINHA AQUI
     FOREIGN KEY(produto_id) REFERENCES produtos(id)
 )
 """)
